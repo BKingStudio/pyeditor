@@ -1,65 +1,48 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import subprocess
+import json
 
-class CodeEditor:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Python Code Editor")
-        self.root.geometry("800x600")
+class RequestHandler(BaseHTTPRequestHandler):
+    # Serve HTML page for GET requests
+    def do_GET(self):
+        if self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            with open("index.html", "rb") as file:
+                self.wfile.write(file.read())
+        else:
+            self.send_error(404, "File not found")
 
-        # Code Area
-        self.code_area = tk.Text(self.root)
-        self.code_area.pack(fill="both", expand=True)
+    # Handle code execution for POST requests
+    def do_POST(self):
+        if self.path == "/run":
+            content_length = int(self.headers["Content-Length"])
+            body = self.rfile.read(content_length)
+            data = json.loads(body)
+            code = data.get("code", "")
 
-        # Menu Bar
-        self.menu_bar = tk.Menu(self.root)
-        self.root.config(menu=self.menu_bar)
+            try:
+                # Execute the Python code and capture output
+                output = subprocess.check_output(
+                    ["python", "-c", code],
+                    stderr=subprocess.STDOUT,
+                    text=True,  # Ensure output is returned as string
+                    shell=False
+                )
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"output": output}).encode())
+            except subprocess.CalledProcessError as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"output": "Error: " + e.output}).encode())
 
-        # File Menu
-        self.file_menu = tk.Menu(self.menu_bar, tearoff=0)
-        self.file_menu.add_command(label="New", command=self.new_file)
-        self.file_menu.add_command(label="Open", command=self.open_file)
-        self.file_menu.add_command(label="Save", command=self.save_file)
-        self.file_menu.add_separator()
-        self.file_menu.add_command(label="Exit", command=self.root.quit)
-        self.menu_bar.add_cascade(label="File", menu=self.file_menu)
-
-        # Run Button
-        self.run_button = tk.Button(self.root, text="Run", command=self.run_code)
-        self.run_button.pack()
-
-        # Output Area
-        self.output_area = tk.Text(self.root)
-        self.output_area.pack(fill="x")
-
-    def new_file(self):
-        self.code_area.delete(1.0, "end")
-
-    def open_file(self):
-        file_path = filedialog.askopenfilename(title="Select Python File")
-        if file_path:
-            with open(file_path, "r") as file:
-                self.code_area.delete(1.0, "end")
-                self.code_area.insert("end", file.read())
-
-    def save_file(self):
-        file_path = filedialog.asksaveasfilename(title="Save Python File")
-        if file_path:
-            with open(file_path, "w") as file:
-                file.write(self.code_area.get(1.0, "end"))
-
-    def run_code(self):
-        code = self.code_area.get(1.0, "end")
-        try:
-            output = subprocess.check_output(["python", "-c", code], stderr=subprocess.STDOUT)
-            self.output_area.delete(1.0, "end")
-            self.output_area.insert("end", output.decode())
-        except subprocess.CalledProcessError as e:
-            self.output_area.delete(1.0, "end")
-            self.output_area.insert("end", f"Error: {e.output.decode()}")
-
+# Start the server
 if __name__ == "__main__":
-    root = tk.Tk()
-    code_editor = CodeEditor(root)
-    root.mainloop()
+    httpd = HTTPServer(("localhost", 8000), RequestHandler)
+    print("Server started on http://localhost:8000")
+    httpd.serve_forever()
+    
